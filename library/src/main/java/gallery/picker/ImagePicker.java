@@ -288,6 +288,10 @@ public class ImagePicker extends Activity implements
 
         @Override
         protected void onPostExecute(ArrayList<Folder> folders) {
+            if(folders == null) {
+                mFolders = new ArrayList<>();
+                mAdapter.setData(new ArrayList<String>());
+            }
             mFolders = folders;
             mAdapter.setData(folders.get(0).images);
         }
