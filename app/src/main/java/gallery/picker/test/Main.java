@@ -2,8 +2,10 @@ package gallery.picker.test;
 
 import android.app.Activity;
 import android.content.Intent;
-import android.content.res.TypedArray;
+import android.graphics.BitmapFactory;
 import android.os.Bundle;
+import android.os.Environment;
+import android.util.Log;
 import android.util.TypedValue;
 import android.view.View;
 import android.widget.ArrayAdapter;
@@ -12,6 +14,7 @@ import android.widget.ListPopupWindow;
 import android.widget.ListView;
 import android.widget.Spinner;
 
+import java.io.File;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 
@@ -69,6 +72,8 @@ public class Main extends Activity implements View.OnClickListener {
         intent.putExtra(ImagePicker.EXTRA_MAX, max);
         CheckBox cb = (CheckBox) findViewById(R.id.camera);
         intent.putExtra(ImagePicker.EXTRA_WITH_CAMERA, cb.isChecked());
+        File output = new File(Environment.getExternalStorageDirectory(), "TEMP.jpg");
+        intent.putExtra(ImagePicker.EXTRA_PHOTO_OUTPUT, output.getAbsolutePath());
         startActivityForResult(intent, 0);
     }
 
@@ -78,6 +83,20 @@ public class Main extends Activity implements View.OnClickListener {
             ArrayList<String> list = data.getStringArrayListExtra(ImagePicker.EXTRA_RESULT);
             mAdapter.clear();
             mAdapter.addAll(list);
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        File output = new File(Environment.getExternalStorageDirectory(), "TEMP.jpg");
+        if (output.exists()) {
+            BitmapFactory.Options options = new BitmapFactory.Options();
+            options.inJustDecodeBounds = true;
+            BitmapFactory.decodeFile(output.getPath(), options);
+            Log.d("Test", String.format("Size: %d X %d",
+                    options.outWidth, options.outHeight));
+            output.delete();
         }
     }
 }

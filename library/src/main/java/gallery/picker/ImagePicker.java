@@ -2,11 +2,13 @@ package gallery.picker;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.net.Uri;
 import android.os.AsyncTask;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.provider.MediaStore;
@@ -28,6 +30,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.TreeMap;
 
+import static android.Manifest.permission.CAMERA;
 import static android.provider.MediaStore.Images.Media.DATA;
 import static android.provider.MediaStore.Images.Media.DATE_ADDED;
 import static android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
@@ -43,14 +46,23 @@ import static android.provider.MediaStore.Images.Media._ID;
  */
 public class ImagePicker extends Activity implements
         View.OnClickListener, AdapterView.OnItemClickListener {
+    private static final String TAG = "ImagePicker";
+
+    //选择的最大数量
     public static final String EXTRA_MAX = "max";
+    //是否允许使用相机
     public static final String EXTRA_WITH_CAMERA = "camera";
+    //指定拍照存放的位置，否则存放于/sdcard/DCIM/Camera下
+    public static final String EXTRA_PHOTO_OUTPUT = "photo_output";
+    //返回的图片结果，放置于StringArrayListExtra
     public static final String EXTRA_RESULT = "result";
 
     private static final int REQUEST_CAMERA = 1;
+    private static final int REQUEST_STORAGE_PERMISSION = 1;
+    private static final int REQUEST_CAMERA_PERMISSION = 2;
 
     private int mMax = -1;
-    private boolean withCamera;
+    private boolean saveToOutput;
 
     private ArrayList<Folder> mFolders;
     private PopupWindow mFolderPopupWindow;
@@ -65,7 +77,12 @@ public class ImagePicker extends Activity implements
         super.onCreate(savedInstanceState);
         Intent intent = getIntent();
         mMax = intent.getIntExtra(EXTRA_MAX, -1);
-        withCamera = intent.getBooleanExtra(EXTRA_WITH_CAMERA, true);
+        boolean withCamera = intent.getBooleanExtra(EXTRA_WITH_CAMERA, true);
+        String output = intent.getStringExtra(EXTRA_PHOTO_OUTPUT);
+        if (output != null) {
+            mPhoto = new File(output);
+            saveToOutput = true;
+        }
 
         setContentView(R.layout.image_picker);
         findViewById(R.id.iv_back).setOnClickListener(this);
@@ -79,7 +96,7 @@ public class ImagePicker extends Activity implements
         GridView gv = (GridView)findViewById(R.id.gv_images);
         gv.setAdapter(mAdapter);
         gv.setOnItemClickListener(this);
-        new Loader().execute();
+        checkStoragePermission();
     }
 
     @Override
@@ -156,7 +173,7 @@ public class ImagePicker extends Activity implements
     public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
         if(mAdapter.isShowCamera()) {
             if(position == 0) {
-                startCamera();
+                checkCameraPermission();
                 return;
             }
         }
@@ -194,9 +211,57 @@ public class ImagePicker extends Activity implements
         mDone.setEnabled(true);
     }
 
+    private void checkStoragePermission() {
+        if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            int p = checkSelfPermission(
+                    android.Manifest.permission.READ_EXTERNAL_STORAGE);
+            if(p != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(
+                        new String[]{android.Manifest.permission.READ_EXTERNAL_STORAGE},
+                        REQUEST_STORAGE_PERMISSION);
+                return;
+            }
+        }
+        new Loader().execute();
+    }
+
+    private void checkCameraPermission() {
+        if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            int p = checkSelfPermission(CAMERA);
+            if(p != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(
+                        new String[]{CAMERA},
+                        REQUEST_CAMERA_PERMISSION);
+                return;
+            }
+        }
+
+        startCamera();
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode,
+                                           String[] permissions,
+                                           int[] grantResults) {
+        if (grantResults[0] != PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
+
+        switch (requestCode) {
+            case REQUEST_STORAGE_PERMISSION:
+                new Loader().execute();
+                break;
+            case REQUEST_CAMERA_PERMISSION:
+                startCamera();
+                break;
+        }
+    }
+
     private void startCamera() {
         Intent cameraIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
-        mPhoto = getCameraOutputFile();
+        if (!saveToOutput) {
+            mPhoto = getCameraOutputFile();
+        }
         cameraIntent.putExtra(MediaStore.EXTRA_OUTPUT, Uri.fromFile(mPhoto));
         startActivityForResult(cameraIntent, REQUEST_CAMERA);
     }
@@ -221,7 +286,8 @@ public class ImagePicker extends Activity implements
             Uri uri = Uri.fromFile(mPhoto);
             if(mPhoto != null && !mPhoto.exists())
                 return;
-            sendBroadcast(new Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE, uri));
+            if(!saveToOutput)
+                sendBroadcast(new Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE, uri));
             ArrayList<String> result = new ArrayList<>(1);
             result.add(mPhoto.getPath());
             Intent intent = new Intent();
@@ -291,6 +357,7 @@ public class ImagePicker extends Activity implements
             if(folders == null) {
                 mFolders = new ArrayList<>();
                 mAdapter.setData(new ArrayList<String>());
+                return;
             }
             mFolders = folders;
             mAdapter.setData(folders.get(0).images);
